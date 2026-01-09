@@ -4,8 +4,6 @@
 
     Defines all API Paths
 """
-from .enums import OrderType
-from .enums import TimeInForce
 
 auth = "auth/getToken"
 segments = "rest/segment/all"

@@ -4,7 +4,8 @@
 
     Defines all library enumerations
 """
-from enum import Enum
+from enum import Enum, StrEnum
+
 
 
 class Environment(Enum):
@@ -132,3 +133,11 @@ class MarketDataEntry(Enum):
     NOMINAL_VOLUME = "NV"
     ACP = "ACP"
     TRADE_COUNT = "TC"
+
+
+class Broker(StrEnum):
+    """
+    Brokers that have matriz
+    """
+    VETA = "veta"
+    

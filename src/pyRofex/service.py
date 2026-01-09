@@ -1,29 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-    pyRofex.service
+pyRofex.service
 
-    All the library exposed functionality
+All the library exposed functionality
 """
+
 import logging
 from inspect import getfullargspec
 
 from .clients.rest_rfx import RestClient
 from .clients.websocket_rfx import WebSocketClient
 from .components import globals
+from .components.enums import Environment, Market, MarketDataEntry, TimeInForce
 from .components.exceptions import ApiException
-from .components.enums import Environment
-from .components.enums import MarketDataEntry
-from .components.enums import TimeInForce
-from .components.enums import Market
-
+from .components.enums import Broker
 
 # ######################################################
 # ##            Initialization functions              ##
 # ######################################################
 
 
-def initialize(user, password, account, environment, proxies=None, ssl_opt=None, active_token=None):
-    """ Initialize the specified environment.
+def initialize(
+    user,
+    password,
+    account,
+    environment,
+    proxies=None,
+    ssl_opt=None,
+    active_token=None,
+    broker : Broker = None,
+):
+    """Initialize the specified environment.
 
      Set the default user, password and account for the environment.
 
@@ -41,10 +48,18 @@ def initialize(user, password, account, environment, proxies=None, ssl_opt=None,
     :type ssl_opt: dict
     :param active_token: (optional) Already Active token. If None, it will request new token on authentication.
     :type active_token: str
+    :param broker: the broker name, Ex. "veta". Required when environment is LIVE.
+    :type broker: str
     """
     _validate_environment(environment)
-    _set_environment_parameters(user, password, account, environment, proxies, ssl_opt)
-    globals.environment_config[environment]["rest_client"] = RestClient(environment, active_token)
+    if environment == Environment.LIVE and broker not in Broker:
+        raise ApiException("Broker parameter is required when using Environment.LIVE")
+    _set_environment_parameters(
+        user, password, account, environment, proxies, ssl_opt, broker
+    )
+    globals.environment_config[environment]["rest_client"] = RestClient(
+        environment, active_token
+    )
     globals.environment_config[environment]["ws_client"] = WebSocketClient(environment)
     set_default_environment(environment)
 
@@ -81,7 +96,9 @@ def _set_environment_parameter(parameter, value, environment):
     globals.environment_config[environment][parameter] = value
 
 
-def _set_environment_parameters(user, password, account, environment, proxies, ssl_opt):
+def _set_environment_parameters(
+    user, password, account, environment, proxies, ssl_opt, broker
+):
     """Configure the environment parameters into global configuration.
 
     Set the user, password and account into globals configuration.
@@ -95,12 +112,20 @@ def _set_environment_parameters(user, password, account, environment, proxies, s
     :type proxies: dict
     :param ssl_opt: (optional) Dictionary with ssl options for websocket connection.
     :type ssl_opt: dict
+    :param broker: the broker name, Ex. "veta".
+    :type broker: str
     """
     globals.environment_config[environment]["user"] = user
     globals.environment_config[environment]["password"] = password
     globals.environment_config[environment]["account"] = account
     globals.environment_config[environment]["proxies"] = proxies
     globals.environment_config[environment]["ssl_opt"] = ssl_opt
+
+    if environment == Environment.LIVE:
+        url_template = f"https://api.{broker}.xoms.com.ar/"
+        ws_template = f"wss://api.{broker}.xoms.com.ar/"
+        globals.environment_config[environment]["url"] = url_template
+        globals.environment_config[environment]["ws"] = ws_template
 
 
 # ######################################################
@@ -128,7 +153,7 @@ def get_segments(environment=None):
     return response
 
 
-def get_instruments(endpoint='all', environment=None, **kwargs):
+def get_instruments(endpoint="all", environment=None, **kwargs):
     """Make a request to the API and get the information depending on the given endpoint.
 
     Valid 'endpoints' are: 'all', 'details', 'detail', 'by_cfi', 'by_segments'.
@@ -216,7 +241,9 @@ def get_instrument_details(ticker, market=Market.ROFEX, environment=None):
     return client.get_instrument_details(ticker, market)
 
 
-def get_market_data(ticker, entries=None, depth=1, market=Market.ROFEX, environment=None):
+def get_market_data(
+    ticker, entries=None, depth=1, market=Market.ROFEX, environment=None
+):
     """Make a request to the API to get the Market Data Entries of the specified instrument.
 
     For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -274,16 +301,21 @@ def get_order_status(client_order_id, proprietary=None, environment=None):
     return client.get_order_status(client_order_id, proprietary)
 
 
-def send_order(ticker, size, order_type, side,
-               market=Market.ROFEX,
-               time_in_force=TimeInForce.DAY,
-               account=None,
-               price=None,
-               cancel_previous=False,
-               iceberg=False,
-               expire_date=None,
-               display_quantity=None,
-               environment=None):
+def send_order(
+    ticker,
+    size,
+    order_type,
+    side,
+    market=Market.ROFEX,
+    time_in_force=TimeInForce.DAY,
+    account=None,
+    price=None,
+    cancel_previous=False,
+    iceberg=False,
+    expire_date=None,
+    display_quantity=None,
+    environment=None,
+):
     """Make a request to the API that send a new order to the Market.
 
     For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -330,9 +362,20 @@ def send_order(ticker, size, order_type, side,
 
     # Get the client for the environment and make the request
     client = globals.environment_config[environment]["rest_client"]
-    return client.send_order(ticker, size, order_type, side, account,
-                             price, time_in_force, market, cancel_previous,
-                             iceberg, expire_date, display_quantity)
+    return client.send_order(
+        ticker,
+        size,
+        order_type,
+        side,
+        account,
+        price,
+        time_in_force,
+        market,
+        cancel_previous,
+        iceberg,
+        expire_date,
+        display_quantity,
+    )
 
 
 def cancel_order(client_order_id, proprietary=None, environment=None):
@@ -362,8 +405,7 @@ def cancel_order(client_order_id, proprietary=None, environment=None):
 
     # Get the client for the environment and make the request
     client = globals.environment_config[environment]["rest_client"]
-    return client.cancel_order(client_order_id,
-                               proprietary)
+    return client.cancel_order(client_order_id, proprietary)
 
 
 def get_all_orders_status(account=None, environment=None):
@@ -393,7 +435,9 @@ def get_all_orders_status(account=None, environment=None):
     return client.get_all_orders_by_account(account)
 
 
-def get_trade_history(ticker, start_date, end_date, market=Market.ROFEX, environment=None):
+def get_trade_history(
+    ticker, start_date, end_date, market=Market.ROFEX, environment=None
+):
     """Makes a request to the API and get trade history for the instrument specified.
 
     For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -507,11 +551,13 @@ def get_account_report(account=None, environment=None):
 # ######################################################
 
 
-def init_websocket_connection(market_data_handler=None,
-                              order_report_handler=None,
-                              error_handler=None,
-                              exception_handler=None,
-                              environment=None):
+def init_websocket_connection(
+    market_data_handler=None,
+    order_report_handler=None,
+    error_handler=None,
+    exception_handler=None,
+    environment=None,
+):
     """Initialize the Websocket Client with the handlers and then start the connection with Primary Websocket API.
 
     A new thread is created in order to motorize the connection and check new incoming messages.
@@ -573,7 +619,9 @@ def close_websocket_connection(environment=None):
     client.close_connection()
 
 
-def order_report_subscription(account=None, snapshot=True, handler=None, environment=None):
+def order_report_subscription(
+    account=None, snapshot=True, handler=None, environment=None
+):
     """Send an Order Report Subscription Message through the connection.
 
     :param account: account that will be send in the message.
@@ -600,14 +648,18 @@ def order_report_subscription(account=None, snapshot=True, handler=None, environ
     # Checks the handler, then validates and adds it into the client.
     if handler is not None:
         _validate_handler(handler)
-        globals.environment_config[environment]["ws_client"].add_order_report_handler(handler)
+        globals.environment_config[environment]["ws_client"].add_order_report_handler(
+            handler
+        )
 
     # Get the client for the environment and send the subscription message
     client = globals.environment_config[environment]["ws_client"]
     client.order_report_subscription(account, snapshot)
 
 
-def market_data_subscription(tickers, entries, depth=1, market=Market.ROFEX, handler=None, environment=None):
+def market_data_subscription(
+    tickers, entries, depth=1, market=Market.ROFEX, handler=None, environment=None
+):
     """Send a Market Data Subscription Message through the connection.
 
     :param tickers: list of the the instruments to be subscribe.
@@ -634,7 +686,9 @@ def market_data_subscription(tickers, entries, depth=1, market=Market.ROFEX, han
     # Checks the handler, then validates and adds it into the client.
     if handler is not None:
         _validate_handler(handler)
-        globals.environment_config[environment]["ws_client"].add_market_data_handler(handler)
+        globals.environment_config[environment]["ws_client"].add_market_data_handler(
+            handler
+        )
 
     # Get the client for the environment and send the subscription message
     client = globals.environment_config[environment]["ws_client"]
@@ -807,18 +861,23 @@ def cancel_order_via_websocket(client_order_id, proprietary=None, environment=No
     client.cancel_order(client_order_id, proprietary)
 
 
-def send_order_via_websocket(ticker, size, side, order_type,
-                             all_or_none=False,
-                             market=Market.ROFEX,
-                             time_in_force=TimeInForce.DAY,
-                             account=None,
-                             price=None,
-                             cancel_previous=False,
-                             iceberg=False,
-                             expire_date=None,
-                             display_quantity=None,
-                             environment=None,
-                             ws_client_order_id=None):
+def send_order_via_websocket(
+    ticker,
+    size,
+    side,
+    order_type,
+    all_or_none=False,
+    market=Market.ROFEX,
+    time_in_force=TimeInForce.DAY,
+    account=None,
+    price=None,
+    cancel_previous=False,
+    iceberg=False,
+    expire_date=None,
+    display_quantity=None,
+    environment=None,
+    ws_client_order_id=None,
+):
     """Send orders via websocket
 
     For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -868,10 +927,22 @@ def send_order_via_websocket(ticker, size, side, order_type,
         account = globals.environment_config[environment]["account"]
 
     # Send the order
-    client.send_order(ticker, size, side, order_type, account,
-                      price, time_in_force, market, cancel_previous,
-                      iceberg, expire_date, display_quantity,
-                      all_or_none, ws_client_order_id)
+    client.send_order(
+        ticker,
+        size,
+        side,
+        order_type,
+        account,
+        price,
+        time_in_force,
+        market,
+        cancel_previous,
+        iceberg,
+        expire_date,
+        display_quantity,
+        all_or_none,
+        ws_client_order_id,
+    )
 
 
 # ######################################################
@@ -890,7 +961,10 @@ def _validate_parameter(parameter, environment):
     :type environment: Environment (Enum).
     """
     if parameter not in globals.environment_config[environment]:
-        raise ApiException("Invalid parameter '%s' for the environment %s." % (parameter, environment.name))
+        raise ApiException(
+            "Invalid parameter '%s' for the environment %s."
+            % (parameter, environment.name)
+        )
 
 
 def _validate_environment(environment):
@@ -953,7 +1027,7 @@ def _validate_account(account, environment):
 
 
 def _validate_handler(handler):
-    """ Checks if the handler is callable and that can received one argument, if not raised an ApiException.
+    """Checks if the handler is callable and that can received one argument, if not raised an ApiException.
 
     :param handler: handler to be validated.
     :type handler: callable.
@@ -961,12 +1035,16 @@ def _validate_handler(handler):
 
     # Checks if it is callable
     if not callable(handler):
-        raise ApiException("Handler '{handler}' is not callable.".format(handler=handler))
+        raise ApiException(
+            "Handler '{handler}' is not callable.".format(handler=handler)
+        )
 
     # Checks if function can receive an argument
     fun_arg_spec = getfullargspec(handler)
     if not fun_arg_spec.args and not fun_arg_spec.varargs:
-        logging.error("Handler '{handler}' can't receive an argument.".format(handler=handler))
+        logging.error(
+            "Handler '{handler}' can't receive an argument.".format(handler=handler)
+        )
 
 
 def _validate_market_data_entries(entries):

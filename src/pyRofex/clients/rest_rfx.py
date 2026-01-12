@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-    pyRofex.rest_client
+pyRofex.rest_client
 
-    Defines a Rest Client that implements ROFEX Rest API.
+Defines a Rest Client that implements ROFEX Rest API.
 """
+
+import asyncio
 import re
-import requests
+
+import httpx
 import simplejson
 
-from ..components import urls
-from ..components import globals
-from ..components.enums import Market
-from ..components.enums import CFICode
-from ..components.enums import OrderType
-from ..components.enums import TimeInForce
-from ..components.enums import MarketSegment
+from ..components import globals, urls
+from ..components.enums import CFICode, Market, MarketSegment, OrderType, TimeInForce
 from ..components.exceptions import ApiException
 
 
 class RestClient:
-    """ Rest Client that implements call to ROFEX REST API.
+    """Rest Client that implements call to ROFEX REST API.
 
     For more information about the API go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
     """
@@ -29,19 +27,21 @@ class RestClient:
 
         :param environment: the environment that will be associated with the client.
         :type environment: Environment (Enum)
-         """
+        """
 
         # Environment associated with Client
         self.environment = globals.environment_config[environment]
 
         # Get the authentication Token.
         if not active_token:
-            self.update_token()
+            asyncio.run(self.update_token())
         else:
             self.environment["token"] = active_token
             self.environment["initialized"] = True
 
-    def get_trade_history(self, ticker, start_date, end_date, market=Market.ROFEX):
+    async def get_trade_history(
+        self, ticker, start_date, end_date, market=Market.ROFEX
+    ):
         """Makes a request to the API and get trade history for the instrument.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -63,14 +63,13 @@ class RestClient:
             ticker = ticker.replace(" ", "%20")
             external = "&external=1"
 
-        return self.api_request(urls.historic_trades.format(m=market.value,
-                                                            s=ticker,
-                                                            df=start_date,
-                                                            dt=end_date,
-                                                            ext=external))
+        return await self.api_request(
+            urls.historic_trades.format(
+                m=market.value, s=ticker, df=start_date, dt=end_date, ext=external
+            )
+        )
 
-
-    def get_segments(self):
+    async def get_segments(self):
         """Make a request to the API and get a list of valid segments.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -78,9 +77,9 @@ class RestClient:
         :return: A list of valid ROFEXs segments returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.segments)
+        return await self.api_request(urls.segments)
 
-    def get_instruments(self, endpoint, **kwargs):
+    async def get_instruments(self, endpoint, **kwargs):
         """Make a request to the API and get the information depending on the given endpoint.
 
         Valid 'endpoints' are: 'all', 'details', 'detail', 'by_cfi', 'by_segments'.
@@ -94,13 +93,15 @@ class RestClient:
         """
         # Check if endpoint arg is a valid one.
         if endpoint not in urls.instruments.keys():
-            raise ApiException("Valid endpoints are: 'all', 'details', 'detail', 'by_cfi', 'by_segments'")
+            raise ApiException(
+                "Valid endpoints are: 'all', 'details', 'detail', 'by_cfi', 'by_segments'"
+            )
 
         # Get url template
         url = urls.instruments[endpoint]
 
         # Define the regular expression pattern to get value between {} in a string
-        pattern = r'\{(.*?)\}'
+        pattern = r"\{(.*?)\}"
 
         # Find all required args in url template
         required_args = re.findall(pattern, url)
@@ -127,17 +128,26 @@ class RestClient:
                 for i in v:
                     kwargs[k] = i
                     if not response:
-                        response = self.api_request(urls.instruments[endpoint].format(**kwargs))
+                        response = await self.api_request(
+                            urls.instruments[endpoint].format(**kwargs)
+                        )
                     else:
-                        response['instruments'] = \
-                            response['instruments'] + \
-                            self.api_request(urls.instruments[endpoint].format(**kwargs))['instruments']
+                        response["instruments"] = (
+                            response["instruments"]
+                            + (
+                                await self.api_request(
+                                    urls.instruments[endpoint].format(**kwargs)
+                                )
+                            )["instruments"]
+                        )
 
         if not response:
-            response = self.api_request(urls.instruments[endpoint].format(**kwargs))
+            response = await self.api_request(
+                urls.instruments[endpoint].format(**kwargs)
+            )
         return response
 
-    def get_all_instruments(self):
+    async def get_all_instruments(self):
         """Make a request to the API and get a list of all available instruments.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -145,9 +155,9 @@ class RestClient:
         :return: A list of valid instruments returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.instruments['all'])
+        return await self.api_request(urls.instruments["all"])
 
-    def get_detailed_instruments(self):
+    async def get_detailed_instruments(self):
         """Make a request to the API and get a list of all available instruments.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -155,9 +165,9 @@ class RestClient:
         :return: A list of valid instruments returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.instruments['details'])
+        return await self.api_request(urls.instruments["details"])
 
-    def get_instrument_details(self, ticker, market):
+    async def get_instrument_details(self, ticker, market):
         """Make a request to the API and get the details of the instrument.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -169,9 +179,11 @@ class RestClient:
         :return: Details of the instrument returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.instruments['detail'].format(ticker=ticker, market=market.value))
+        return await self.api_request(
+            urls.instruments["detail"].format(ticker=ticker, market=market.value)
+        )
 
-    def get_market_data(self, ticker, entries, depth, market):
+    async def get_market_data(self, ticker, entries, depth, market):
         """Make a request to the API to get the Market Data Entries of the specified instrument.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -190,12 +202,11 @@ class RestClient:
 
         # Creates a comma separated string with the entries in the list.
         entry_string = ",".join([entry.value for entry in entries])
-        return self.api_request(urls.market_data.format(m=market.value,
-                                                        s=ticker,
-                                                        e=entry_string,
-                                                        d=depth))
+        return await self.api_request(
+            urls.market_data.format(m=market.value, s=ticker, e=entry_string, d=depth)
+        )
 
-    def get_order_status(self, client_order_id, proprietary):
+    async def get_order_status(self, client_order_id, proprietary):
         """Make a request to the API to get the status of the specified order.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -207,10 +218,11 @@ class RestClient:
         :return: Order status response of the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.order_status.format(c=client_order_id,
-                                                         p=proprietary))
+        return await self.api_request(
+            urls.order_status.format(c=client_order_id, p=proprietary)
+        )
 
-    def get_all_orders_by_account(self, account):
+    async def get_all_orders_by_account(self, account):
         """Make a request to the API and get the status of all the orders associated with the account.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -220,9 +232,9 @@ class RestClient:
         :return: List of all orders status associated with the user returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.all_orders_status.format(a=account))
+        return await self.api_request(urls.all_orders_status.format(a=account))
 
-    def get_account_position(self, account):
+    async def get_account_position(self, account):
         """Make a request to the API and get the account positions.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -232,9 +244,9 @@ class RestClient:
         :return: List of all instruments positions status associated with the user returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.account_position.format(a=account))
+        return await self.api_request(urls.account_position.format(a=account))
 
-    def get_detailed_position(self, account):
+    async def get_detailed_position(self, account):
         """Make a request to the API and get the detailed account asset positions by asset type.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -244,9 +256,9 @@ class RestClient:
         :return: List of all instruments positions status associated with the user returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.detailed_position.format(a=account))
+        return await self.api_request(urls.detailed_position.format(a=account))
 
-    def get_account_report(self, account):
+    async def get_account_report(self, account):
         """Make a request to the API and get the summary of associated account.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -256,12 +268,23 @@ class RestClient:
         :return: Summary status associated with the user returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.account_report.format(a=account))
+        return await self.api_request(urls.account_report.format(a=account))
 
-    def send_order(self, ticker, size, order_type, side,
-                   account, price, time_in_force, market,
-                   cancel_previous, iceberg, expire_date,
-                   display_quantity):
+    async def send_order(
+        self,
+        ticker,
+        size,
+        order_type,
+        side,
+        account,
+        price,
+        time_in_force,
+        market,
+        cancel_previous,
+        iceberg,
+        expire_date,
+        display_quantity,
+    ):
         """Make a request to the API that send a new order to the Market.
 
         For more detailed information go to: https://apihub.primary.com.ar/assets/docs/Primary-API.pdf
@@ -306,20 +329,24 @@ class RestClient:
         if iceberg:
             new_order_url = new_order_url + urls.iceberg
 
-        return self.api_request(new_order_url.format(market=market.value,
-                                                     ticker=ticker,
-                                                     size=size,
-                                                     type=order_type.value,
-                                                     side=side.value,
-                                                     time_force=time_in_force.value,
-                                                     account=account,
-                                                     price=price,
-                                                     cancel_previous=cancel_previous,
-                                                     iceberg=iceberg,
-                                                     expire_date=expire_date,
-                                                     display_quantity=display_quantity))
+        return await self.api_request(
+            new_order_url.format(
+                market=market.value,
+                ticker=ticker,
+                size=size,
+                type=order_type.value,
+                side=side.value,
+                time_force=time_in_force.value,
+                account=account,
+                price=price,
+                cancel_previous=cancel_previous,
+                iceberg=iceberg,
+                expire_date=expire_date,
+                display_quantity=display_quantity,
+            )
+        )
 
-    def cancel_order(self, client_order_id, proprietary):
+    async def cancel_order(self, client_order_id, proprietary):
         """Make a request to the API and cancel the order specified.
 
         The market will respond with a client order id, then you should verify the status of the request with this id.
@@ -333,11 +360,12 @@ class RestClient:
         :return: Client Order ID of cancellation request returned by the API.
         :rtype: dict of JSON response.
         """
-        return self.api_request(urls.cancel_order.format(id=client_order_id,
-                                                         p=proprietary))
+        return await self.api_request(
+            urls.cancel_order.format(id=client_order_id, p=proprietary)
+        )
 
-    def api_request(self, path, retry=True):
-        """ Make a GET request to the API.
+    async def api_request(self, path, retry=True):
+        """Make a GET request to the API.
 
         :param path: path to the API resource.
         :type path: str
@@ -347,42 +375,46 @@ class RestClient:
         :return: response of the API.
         :rtype: dict of JSON response.
         """
-        headers = {'X-Auth-Token': self.environment["token"]}
-        response = requests.get(self._url(path),
-                                headers=headers,
-                                verify=self.environment["ssl"],
-                                proxies=self.environment["proxies"])
+        headers = {"X-Auth-Token": self.environment["token"]}
+        proxies = self.environment.get("proxies")
+        async with httpx.AsyncClient(
+            verify=self.environment["ssl"], proxy=proxies
+        ) as client:
+            response = await client.get(self._url(path), headers=headers)
 
         # Checks if the response code is 401 (Unauthorized)
         if response.status_code == 401:
             if retry:
-                self.update_token()
-                self.api_request(path, False)
+                await self.update_token()
+                return await self.api_request(path, False)
             else:
                 raise ApiException("Authentication Fails.")
 
         return simplejson.loads(response.content)
 
-    def update_token(self):
-        """ Authenticate using the environment user and password.
+    async def update_token(self):
+        """Authenticate using the environment user and password.
 
         Then save the token in the environment parameters and set the initialized parameter to True.
         """
-        headers = {'X-Username': self.environment["user"],
-                   'X-Password': self.environment["password"]}
-        response = requests.post(self._url(urls.auth),
-                                 headers=headers,
-                                 verify=self.environment["ssl"],
-                                 proxies=self.environment["proxies"])
+        headers = {
+            "X-Username": self.environment["user"],
+            "X-Password": self.environment["password"],
+        }
+        proxies = self.environment.get("proxies")
+        async with httpx.AsyncClient(
+            verify=self.environment["ssl"], proxy=proxies
+        ) as client:
+            response = await client.post(self._url(urls.auth), headers=headers)
 
-        if not response.ok:
+        if not response.is_success:
             raise ApiException("Authentication fails. Incorrect User or Password")
 
-        self.environment["token"] = response.headers['X-Auth-Token']
+        self.environment["token"] = response.headers["X-Auth-Token"]
         self.environment["initialized"] = True
 
     def _url(self, path):
-        """ Helper function that concatenate the path to the environment url.
+        """Helper function that concatenate the path to the environment url.
 
         :param path: path to the API resource.
         :type path: str

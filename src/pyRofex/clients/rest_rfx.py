@@ -34,7 +34,31 @@ class RestClient:
 
         # Get the authentication Token.
         if not active_token:
-            asyncio.run(self.update_token())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(self.update_token())
+            else:
+                import concurrent.futures
+                import threading
+
+                future = concurrent.futures.Future()
+
+                def run_in_thread():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        new_loop.run_until_complete(self.update_token())
+                        future.set_result(None)
+                    except Exception as e:
+                        future.set_exception(e)
+                    finally:
+                        new_loop.close()
+
+                thread = threading.Thread(target=run_in_thread)
+                thread.start()
+                thread.join()
+                future.result()
         else:
             self.environment["token"] = active_token
             self.environment["initialized"] = True

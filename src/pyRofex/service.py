@@ -6,7 +6,9 @@ All the library exposed functionality
 """
 
 import asyncio
+import concurrent.futures
 import logging
+import threading
 from inspect import getfullargspec
 
 from .clients.rest_rfx import RestClient
@@ -18,6 +20,37 @@ from .components.exceptions import ApiException
 # ######################################################
 # ##            Initialization functions              ##
 # ######################################################
+
+
+def _run_async(coro):
+    """Run an async coroutine, handling both cases: with and without a running event loop.
+
+    :param coro: The coroutine to run.
+    :type coro: coroutine
+    :return: The result of the coroutine.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    else:
+        future = concurrent.futures.Future()
+
+        def run_in_thread():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                result = new_loop.run_until_complete(coro)
+                future.set_result(result)
+            except Exception as e:
+                future.set_exception(e)
+            finally:
+                new_loop.close()
+
+        thread = threading.Thread(target=run_in_thread)
+        thread.start()
+        thread.join()
+        return future.result()
 
 
 def initialize(
@@ -150,7 +183,7 @@ def get_segments(environment=None):
 
     # Get the client for the environment and start the connection
     client: RestClient = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_segments())
+    return _run_async(client.get_segments())
 
 
 def get_instruments(endpoint="all", environment=None, **kwargs):
@@ -173,8 +206,8 @@ def get_instruments(endpoint="all", environment=None, **kwargs):
     _validate_initialization(environment)
 
     # Get the client for the environment and start the connection
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_instruments(endpoint, **kwargs))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_instruments(endpoint, **kwargs))
 
 
 def get_all_instruments(environment=None):
@@ -193,8 +226,8 @@ def get_all_instruments(environment=None):
     _validate_initialization(environment)
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_all_instruments())
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_all_instruments())
 
 
 def get_detailed_instruments(environment=None):
@@ -213,8 +246,8 @@ def get_detailed_instruments(environment=None):
     _validate_initialization(environment)
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_detailed_instruments())
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_detailed_instruments())
 
 
 def get_instrument_details(ticker, market=Market.ROFEX, environment=None):
@@ -237,8 +270,8 @@ def get_instrument_details(ticker, market=Market.ROFEX, environment=None):
     _validate_initialization(environment)
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_instrument_details(ticker, market))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_instrument_details(ticker, market))
 
 
 def get_market_data(
@@ -269,8 +302,8 @@ def get_market_data(
     entries = _validate_market_data_entries(entries)
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_market_data(ticker, entries, depth, market))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_market_data(ticker, entries, depth, market))
 
 
 def get_order_status(client_order_id, proprietary=None, environment=None):
@@ -297,8 +330,8 @@ def get_order_status(client_order_id, proprietary=None, environment=None):
         proprietary = globals.environment_config[environment]["proprietary"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_order_status(client_order_id, proprietary))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_order_status(client_order_id, proprietary))
 
 
 def send_order(
@@ -361,8 +394,8 @@ def send_order(
         account = globals.environment_config[environment]["account"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(
         client.send_order(
             ticker,
             size,
@@ -406,8 +439,8 @@ def cancel_order(client_order_id, proprietary=None, environment=None):
         proprietary = globals.environment_config[environment]["proprietary"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.cancel_order(client_order_id, proprietary))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.cancel_order(client_order_id, proprietary))
 
 
 def get_all_orders_status(account=None, environment=None):
@@ -433,8 +466,8 @@ def get_all_orders_status(account=None, environment=None):
         account = globals.environment_config[environment]["account"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_all_orders_by_account(account))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_all_orders_by_account(account))
 
 
 def get_trade_history(
@@ -463,8 +496,8 @@ def get_trade_history(
     _validate_initialization(environment)
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_trade_history(ticker, start_date, end_date, market))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_trade_history(ticker, start_date, end_date, market))
 
 
 def get_account_position(account=None, environment=None):
@@ -490,8 +523,8 @@ def get_account_position(account=None, environment=None):
         account = globals.environment_config[environment]["account"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_account_position(account))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_account_position(account))
 
 
 def get_detailed_position(account=None, environment=None):
@@ -517,8 +550,8 @@ def get_detailed_position(account=None, environment=None):
         account = globals.environment_config[environment]["account"]
 
     # Get the client for the environment and make the request
-    client: RestClient  = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_detailed_position(account))
+    client: RestClient = globals.environment_config[environment]["rest_client"]
+    return _run_async(client.get_detailed_position(account))
 
 
 def get_account_report(account=None, environment=None):
@@ -545,7 +578,7 @@ def get_account_report(account=None, environment=None):
 
     # Get the client for the environment and make the request
     client: RestClient = globals.environment_config[environment]["rest_client"]
-    return asyncio.run(client.get_account_report(account))
+    return _run_async(client.get_account_report(account))
 
 
 # ######################################################
@@ -859,7 +892,7 @@ def cancel_order_via_websocket(client_order_id, proprietary=None, environment=No
         proprietary = globals.environment_config[environment]["proprietary"]
 
     # Get the client for the environment and make the request
-    client: WebSocketClient  = globals.environment_config[environment]["ws_client"]
+    client: WebSocketClient = globals.environment_config[environment]["ws_client"]
     client.cancel_order(client_order_id, proprietary)
 
 
@@ -922,7 +955,7 @@ def send_order_via_websocket(
     _validate_initialization(environment)
 
     # Gets the client for the environment
-    client: WebSocketClient  = globals.environment_config[environment]["ws_client"]
+    client: WebSocketClient = globals.environment_config[environment]["ws_client"]
 
     # Checks the account and sets the default one if None is received.
     if account is None:
